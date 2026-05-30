@@ -15,7 +15,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(mongo_url, tlsAllowInvalidCertificates=True)
 db = client[os.environ['DB_NAME']]
 
 SUNO_API_KEY = os.environ.get('SUNO_API_KEY')
@@ -48,6 +48,7 @@ class GenerateMusicRequest(BaseModel):
     rhythm: str
     voice: str
     mood: str
+    voice_tag: Optional[str] = None
 
 class GenerateMusicResponse(BaseModel):
     project_id: str
@@ -57,6 +58,20 @@ class GenerateMusicResponse(BaseModel):
 class MusicStatusResponse(BaseModel):
     status: str
     variations: Optional[List[MusicVariation]] = None
+
+VOICE_MAP = {
+    "masculino": "male voice, male singer, man singing",
+    "feminino": "female voice, female singer, woman singing"
+}
+
+MOOD_MAP = {
+    "alegre": "happy, upbeat, joyful",
+    "romantico": "romantic, tender, love song",
+    "melancolico": "melancholic, sad, emotional",
+    "animado": "energetic, exciting, powerful",
+    "reflexivo": "reflective, thoughtful, calm",
+    "saudade": "nostalgic, longing, saudade"
+}
 
 def call_suno_generate(lyrics: str, tags: str) -> dict:
     headers = {
@@ -71,6 +86,7 @@ def call_suno_generate(lyrics: str, tags: str) -> dict:
         "model": "V4_5ALL",
         "callBackUrl": "https://webhook.site/placeholder"
     }
+    logging.info(f"Calling Suno with tags: {tags}")
     response = requests.post(
         f"{SUNO_BASE_URL}/generate",
         json=payload,
@@ -98,16 +114,6 @@ def check_suno_status(task_id: str) -> dict:
         raise HTTPException(status_code=500, detail=f"Suno API error: {response.text}")
     return response.json()
 
-VOICE_MAP = {"masculino": "male vocals", "feminino": "female vocals"}
-MOOD_MAP = {
-    "alegre": "happy, upbeat, joyful",
-    "romantico": "romantic, tender, love",
-    "melancolico": "melancholic, sad, emotional",
-    "animado": "energetic, exciting, powerful",
-    "reflexivo": "reflective, thoughtful, calm",
-    "saudade": "nostalgic, longing, saudade"
-}
-
 @api_router.get("/")
 async def root():
     return {"message": "Calixto Music API"}
@@ -115,7 +121,7 @@ async def root():
 @api_router.post("/music/generate", response_model=GenerateMusicResponse)
 async def generate_music(request: GenerateMusicRequest):
     try:
-        voice_tag = VOICE_MAP.get(request.voice.lower(), request.voice)
+        voice_tag = VOICE_MAP.get(request.voice.lower(), request.voice_tag or "male voice")
         mood_tag = MOOD_MAP.get(request.mood.lower(), request.mood)
         tags = f"{request.rhythm}, {voice_tag}, {mood_tag}"
 
@@ -149,6 +155,9 @@ async def generate_music(request: GenerateMusicRequest):
 @api_router.get("/music/status/{project_id}", response_model=MusicStatusResponse)
 async def check_music_status(project_id: str):
     try:
+        if not project_id or project_id == "undefined":
+            raise HTTPException(status_code=400, detail="Invalid project ID")
+
         project = await db.music_projects.find_one({"id": project_id}, {"_id": 0})
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
@@ -170,7 +179,7 @@ async def check_music_status(project_id: str):
                     variations = []
                     for song in suno_data[:2]:
                         variations.append(MusicVariation(
-                            id=song.get("id"),
+                            id=song.get("id", str(uuid.uuid4())),
                             audio_url=song.get("audioUrl"),
                             image_url=song.get("imageUrl"),
                             title=song.get("title"),
