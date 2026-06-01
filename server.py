@@ -49,6 +49,8 @@ class GenerateMusicRequest(BaseModel):
     voice: str
     mood: str
     voice_tag: Optional[str] = None
+    style_tags: Optional[str] = None
+    prompt_prefix: Optional[str] = None
 
 class GenerateMusicResponse(BaseModel):
     project_id: str
@@ -59,9 +61,10 @@ class MusicStatusResponse(BaseModel):
     status: str
     variations: Optional[List[MusicVariation]] = None
 
+# FIX VOZ: tags mais fortes e diretas para o Suno
 VOICE_MAP = {
-    "masculino": "male voice, male singer, man singing",
-    "feminino": "female voice, female singer, woman singing"
+    "masculino": "male voice, male singer, man singing, masculine vocals",
+    "feminino": "female voice, female singer, woman singing, feminine vocals, female vocals"
 }
 
 MOOD_MAP = {
@@ -87,11 +90,14 @@ def call_suno_generate(lyrics: str, tags: str) -> dict:
         "callBackUrl": "https://webhook.site/placeholder"
     }
     logging.info(f"Calling Suno with tags: {tags}")
+    logging.info(f"Calling Suno with lyrics: {lyrics[:100]}")
+    
+    # FIX TIMEOUT: aumentado para 60s
     response = requests.post(
         f"{SUNO_BASE_URL}/generate",
         json=payload,
         headers=headers,
-        timeout=30
+        timeout=60
     )
     if response.status_code != 200:
         raise HTTPException(status_code=500, detail=f"Suno API error: {response.text}")
@@ -102,11 +108,12 @@ def call_suno_generate(lyrics: str, tags: str) -> dict:
 
 def check_suno_status(task_id: str) -> dict:
     headers = {"Authorization": f"Bearer {SUNO_API_KEY}"}
+    # FIX TIMEOUT: aumentado para 60s
     response = requests.get(
         f"{SUNO_BASE_URL}/generate/record-info",
         params={"taskId": task_id},
         headers=headers,
-        timeout=30
+        timeout=60
     )
     if response.status_code == 404:
         return {"code": 404, "msg": "Processing"}
@@ -121,9 +128,13 @@ async def root():
 @api_router.post("/music/generate", response_model=GenerateMusicResponse)
 async def generate_music(request: GenerateMusicRequest):
     try:
-        voice_tag = VOICE_MAP.get(request.voice.lower(), request.voice_tag or "male voice")
+        voice_tag = VOICE_MAP.get(request.voice.lower(), request.voice_tag or "male voice, male singer")
         mood_tag = MOOD_MAP.get(request.mood.lower(), request.mood)
-        tags = f"{request.rhythm}, {voice_tag}, {mood_tag}"
+        
+        # FIX VOZ: colocar voz PRIMEIRO nas tags para o Suno priorizar
+        tags = f"{voice_tag}, {request.rhythm}, {mood_tag}"
+        
+        logging.info(f"Generating music - voice: {request.voice}, tags: {tags}")
 
         suno_response = call_suno_generate(request.lyrics, tags)
         task_id = suno_response.get("data", {}).get("taskId")
@@ -146,7 +157,7 @@ async def generate_music(request: GenerateMusicRequest):
         return GenerateMusicResponse(
             project_id=project.id,
             task_id=task_id,
-            message="Musica sendo gerada! Aguarde 1-2 minutos."
+            message="Musica sendo gerada! Aguarde 1-3 minutos."
         )
     except Exception as e:
         logging.error(f"Error generating music: {str(e)}")
@@ -167,21 +178,47 @@ async def check_music_status(project_id: str):
             return MusicStatusResponse(status="completed", variations=variations)
 
         suno_response = check_suno_status(project.get("task_id"))
+        logging.info(f"Suno status response for {project_id}: {str(suno_response)[:300]}")
 
         if suno_response.get("code") == 404:
             return MusicStatusResponse(status="processing")
 
         if suno_response.get("code") == 200:
             response_data = suno_response.get("data", {})
-            if response_data.get("status") == "FIRST_SUCCESS":
-                suno_data = response_data.get("response", {}).get("sunoData", [])
+            suno_status = response_data.get("status", "")
+            
+            logging.info(f"Suno task status: {suno_status}")
+
+            # FIX STATUS: aceitar TODOS os status de sucesso do Suno
+            success_statuses = [
+                "FIRST_SUCCESS",
+                "SUCCESS", 
+                "COMPLETE",
+                "COMPLETED",
+                "complete",
+                "success",
+                "first_success"
+            ]
+            
+            if suno_status in success_statuses or suno_status.upper() in [s.upper() for s in success_statuses]:
+                # Tentar pegar os dados de música em diferentes estruturas de resposta
+                suno_data = (
+                    response_data.get("response", {}).get("sunoData", []) or
+                    response_data.get("sunoData", []) or
+                    response_data.get("data", []) or
+                    response_data.get("songs", []) or
+                    []
+                )
+                
+                logging.info(f"Suno data found: {len(suno_data)} songs")
+                
                 if suno_data:
                     variations = []
                     for song in suno_data[:2]:
                         variations.append(MusicVariation(
                             id=song.get("id", str(uuid.uuid4())),
-                            audio_url=song.get("audioUrl"),
-                            image_url=song.get("imageUrl"),
+                            audio_url=song.get("audioUrl") or song.get("audio_url"),
+                            image_url=song.get("imageUrl") or song.get("image_url"),
                             title=song.get("title"),
                             duration=song.get("duration")
                         ))
@@ -190,6 +227,10 @@ async def check_music_status(project_id: str):
                         {"$set": {"status": "completed", "variations": [v.model_dump() for v in variations]}}
                     )
                     return MusicStatusResponse(status="completed", variations=variations)
+            
+            # FIX: logar o status desconhecido para diagnóstico
+            if suno_status and suno_status not in ["PENDING", "PROCESSING", "pending", "processing", ""]:
+                logging.warning(f"Unknown Suno status: {suno_status} - full response: {str(response_data)[:500]}")
 
         return MusicStatusResponse(status="processing")
     except Exception as e:
