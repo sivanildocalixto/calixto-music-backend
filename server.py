@@ -61,38 +61,98 @@ class MusicStatusResponse(BaseModel):
     status: str
     variations: Optional[List[MusicVariation]] = None
 
-# FIX VOZ: tags mais fortes e diretas para o Suno
-VOICE_MAP = {
-    "masculino": "male voice, male singer, man singing, masculine vocals",
-    "feminino": "female voice, female singer, woman singing, feminine vocals, female vocals"
+# Tags de voz para o campo tags do Suno
+VOICE_TAGS = {
+    "masculino": "male vocals, male singer, man voice",
+    "feminino": "female vocals, female singer, woman voice"
 }
 
-MOOD_MAP = {
+# Instrução de voz para colocar na letra (metatag Suno)
+VOICE_STYLE = {
+    "masculino": "male vocals",
+    "feminino": "female vocals"
+}
+
+MOOD_TAGS = {
     "alegre": "happy, upbeat, joyful",
-    "romantico": "romantic, tender, love song",
+    "romantico": "romantic, tender, love",
     "melancolico": "melancholic, sad, emotional",
     "animado": "energetic, exciting, powerful",
     "reflexivo": "reflective, thoughtful, calm",
     "saudade": "nostalgic, longing, saudade"
 }
 
-def call_suno_generate(lyrics: str, tags: str) -> dict:
+# Mapa de ritmos para tags Suno precisas
+RHYTHM_TAGS = {
+    "Forro": "forro, accordion, zabumba, forró brasileiro",
+    "Forro Universitario": "forro universitario, modern forro, electric guitar",
+    "Forro Pe de Serra": "forro pe de serra, traditional forro, accordion",
+    "Baiao": "baiao, northeastern brazil, accordion",
+    "Xote": "xote, slow forro, romantic northeastern",
+    "Arrocha": "arrocha, romantic brazilian, slow",
+    "Sertanejo Universitario": "sertanejo universitario, modern brazilian country",
+    "Sertanejo Raiz": "sertanejo raiz, traditional country, acoustic guitar",
+    "Sertanejo Romantico": "sertanejo romantico, romantic country ballad",
+    "Pagode": "pagode, samba pagode, cavaquinho, pandeiro",
+    "Samba": "samba, brazilian samba, percussion",
+    "Samba Enredo": "samba enredo, carnival samba, epic",
+    "Boteco": "pagode boteco, casual samba",
+    "Axe": "axe music, bahian carnival, festive",
+    "MPB": "mpb, musica popular brasileira, acoustic",
+    "Gospel Adoracao": "gospel worship, christian, spiritual, piano",
+    "Gospel Louvor": "gospel praise, christian, uplifting, choir",
+    "Gospel Infantil": "gospel kids, christian children, joyful",
+    "Kidis": "christian kids music, animated, fun",
+    "Funk Carioca": "funk carioca, baile funk, 150bpm, heavy bass",
+    "Funk Ostentacao": "funk ostentacao, brazilian funk, heavy bass, 150bpm",
+    "Brega Funk": "brega funk, pernambuco funk, melodic",
+    "Piseiro": "piseiro, forro piseiro, electronic beat",
+    "Eletronico": "electronic, EDM, synthesizer, dance",
+    "Pop Nacional": "brazilian pop, pop nacional, catchy",
+    "Rock Nacional": "rock nacional, brazilian rock, electric guitar",
+    "Reggae": "reggae, relaxed, bass guitar",
+    "Reggaeton": "reggaeton, latin urban, dembow",
+    "Balada": "ballad, slow, emotional, piano",
+    "RnB Nacional": "rnb, soul, smooth, groove",
+    "Soul Brasileiro": "soul, brazilian soul, groove",
+    "Pisadinha": "pisadinha, forro eletrônico, beat"
+}
+
+def build_prompt_with_metatags(lyrics: str, voice: str, rhythm: str) -> str:
+    """
+    Suno respeita metatags dentro da letra no formato [estilo].
+    Isso garante voz e ritmo corretos mesmo quando as tags externas são ignoradas.
+    """
+    voice_style = VOICE_STYLE.get(voice.lower(), "male vocals")
+    
+    # Adicionar metatags do Suno no início da letra
+    # O Suno usa [Verse], [Chorus], [Bridge] etc.
+    # Também respeita instruções de estilo no início
+    prompt = f"[{voice_style}]\n{lyrics}"
+    return prompt
+
+def call_suno_generate(lyrics: str, tags: str, voice: str, rhythm: str) -> dict:
     headers = {
         "Authorization": f"Bearer {SUNO_API_KEY}",
         "Content-Type": "application/json"
     }
+    
+    # Construir prompt com metatags para forçar voz correta
+    prompt = build_prompt_with_metatags(lyrics, voice, rhythm)
+    
     payload = {
-        "prompt": lyrics,
+        "prompt": prompt,
         "tags": tags,
         "customMode": True,
         "instrumental": False,
         "model": "V4_5ALL",
         "callBackUrl": "https://webhook.site/placeholder"
     }
-    logging.info(f"Calling Suno with tags: {tags}")
-    logging.info(f"Calling Suno with lyrics: {lyrics[:100]}")
     
-    # FIX TIMEOUT: aumentado para 60s
+    logging.info(f"Calling Suno with tags: {tags}")
+    logging.info(f"Calling Suno with voice metatag: [{VOICE_STYLE.get(voice.lower(), 'male vocals')}]")
+    logging.info(f"Prompt preview: {prompt[:100]}")
+    
     response = requests.post(
         f"{SUNO_BASE_URL}/generate",
         json=payload,
@@ -108,7 +168,6 @@ def call_suno_generate(lyrics: str, tags: str) -> dict:
 
 def check_suno_status(task_id: str) -> dict:
     headers = {"Authorization": f"Bearer {SUNO_API_KEY}"}
-    # FIX TIMEOUT: aumentado para 60s
     response = requests.get(
         f"{SUNO_BASE_URL}/generate/record-info",
         params={"taskId": task_id},
@@ -123,20 +182,24 @@ def check_suno_status(task_id: str) -> dict:
 
 @api_router.get("/")
 async def root():
-    return {"message": "Calixto Music API"}
+    return {"message": "Calixto Music API v2"}
 
 @api_router.post("/music/generate", response_model=GenerateMusicResponse)
 async def generate_music(request: GenerateMusicRequest):
     try:
-        voice_tag = VOICE_MAP.get(request.voice.lower(), request.voice_tag or "male voice, male singer")
-        mood_tag = MOOD_MAP.get(request.mood.lower(), request.mood)
+        voice_tag = VOICE_TAGS.get(request.voice.lower(), "male vocals, male singer")
+        mood_tag = MOOD_TAGS.get(request.mood.lower(), request.mood)
         
-        # FIX VOZ: colocar voz PRIMEIRO nas tags para o Suno priorizar
-        tags = f"{voice_tag}, {request.rhythm}, {mood_tag}"
+        # Pegar tags precisas do ritmo
+        rhythm_tag = RHYTHM_TAGS.get(request.rhythm, request.rhythm)
         
-        logging.info(f"Generating music - voice: {request.voice}, tags: {tags}")
+        # IMPORTANTE: voz PRIMEIRO nas tags
+        tags = f"{voice_tag}, {rhythm_tag}, {mood_tag}"
+        
+        logging.info(f"Generating music - voice: {request.voice}, rhythm: {request.rhythm}")
+        logging.info(f"Final tags: {tags}")
 
-        suno_response = call_suno_generate(request.lyrics, tags)
+        suno_response = call_suno_generate(request.lyrics, tags, request.voice, request.rhythm)
         task_id = suno_response.get("data", {}).get("taskId")
 
         if not task_id:
@@ -178,7 +241,7 @@ async def check_music_status(project_id: str):
             return MusicStatusResponse(status="completed", variations=variations)
 
         suno_response = check_suno_status(project.get("task_id"))
-        logging.info(f"Suno status response for {project_id}: {str(suno_response)[:300]}")
+        logging.info(f"Suno status for {project_id}: {str(suno_response)[:200]}")
 
         if suno_response.get("code") == 404:
             return MusicStatusResponse(status="processing")
@@ -186,28 +249,16 @@ async def check_music_status(project_id: str):
         if suno_response.get("code") == 200:
             response_data = suno_response.get("data", {})
             suno_status = response_data.get("status", "")
-            
             logging.info(f"Suno task status: {suno_status}")
 
-            # FIX STATUS: aceitar TODOS os status de sucesso do Suno
-            success_statuses = [
-                "FIRST_SUCCESS",
-                "SUCCESS", 
-                "COMPLETE",
-                "COMPLETED",
-                "complete",
-                "success",
-                "first_success"
-            ]
+            success_statuses = ["FIRST_SUCCESS", "SUCCESS", "COMPLETE", "COMPLETED"]
             
-            if suno_status in success_statuses or suno_status.upper() in [s.upper() for s in success_statuses]:
-                # Tentar pegar os dados de música em diferentes estruturas de resposta
+            if suno_status.upper() in success_statuses:
                 suno_data = (
                     response_data.get("response", {}).get("sunoData", []) or
                     response_data.get("sunoData", []) or
                     response_data.get("data", []) or
-                    response_data.get("songs", []) or
-                    []
+                    response_data.get("songs", []) or []
                 )
                 
                 logging.info(f"Suno data found: {len(suno_data)} songs")
@@ -227,10 +278,9 @@ async def check_music_status(project_id: str):
                         {"$set": {"status": "completed", "variations": [v.model_dump() for v in variations]}}
                     )
                     return MusicStatusResponse(status="completed", variations=variations)
-            
-            # FIX: logar o status desconhecido para diagnóstico
-            if suno_status and suno_status not in ["PENDING", "PROCESSING", "pending", "processing", ""]:
-                logging.warning(f"Unknown Suno status: {suno_status} - full response: {str(response_data)[:500]}")
+
+            if suno_status and suno_status.upper() not in ["PENDING", "PROCESSING", ""]:
+                logging.warning(f"Unknown Suno status: {suno_status}")
 
         return MusicStatusResponse(status="processing")
     except Exception as e:
