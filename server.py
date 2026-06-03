@@ -121,14 +121,14 @@ RHYTHM_TAGS = {
 def build_prompt_with_metatags(lyrics: str, voice: str, rhythm: str) -> str:
     """
     Suno respeita metatags dentro da letra no formato [estilo].
-    Isso garante voz e ritmo corretos mesmo quando as tags externas são ignoradas.
+    Colocar voz E ritmo na metatag garante que ambos sejam respeitados.
     """
     voice_style = VOICE_STYLE.get(voice.lower(), "male vocals")
+    rhythm_tag = RHYTHM_TAGS.get(rhythm, rhythm)
     
-    # Adicionar metatags do Suno no início da letra
-    # O Suno usa [Verse], [Chorus], [Bridge] etc.
-    # Também respeita instruções de estilo no início
-    prompt = f"[{voice_style}]\n{lyrics}"
+    # Metatag com voz + ritmo juntos — Suno prioriza isso acima de tudo
+    prompt = f"[{voice_style}, {rhythm_tag}]\n{lyrics}"
+    logging.info(f"Metatag inserida: [{voice_style}, {rhythm_tag}]")
     return prompt
 
 def call_suno_generate(lyrics: str, tags: str, voice: str, rhythm: str) -> dict:
