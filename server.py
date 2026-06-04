@@ -82,40 +82,40 @@ MOOD_TAGS = {
     "saudade": "nostalgic, longing, saudade"
 }
 
-# Mapa de ritmos para tags Suno precisas
+# Mapa de ritmos com descrições em INGLES para o Suno entender corretamente
 RHYTHM_TAGS = {
-    "Forro": "forro, accordion, zabumba, forró brasileiro",
-    "Forro Universitario": "forro universitario, modern forro, electric guitar",
-    "Forro Pe de Serra": "forro pe de serra, traditional forro, accordion",
-    "Baiao": "baiao, northeastern brazil, accordion",
-    "Xote": "xote, slow forro, romantic northeastern",
-    "Arrocha": "arrocha, romantic brazilian, slow",
-    "Sertanejo Universitario": "sertanejo universitario, modern brazilian country",
-    "Sertanejo Raiz": "sertanejo raiz, traditional country, acoustic guitar",
-    "Sertanejo Romantico": "sertanejo romantico, romantic country ballad",
-    "Pagode": "pagode, samba pagode, cavaquinho, pandeiro",
-    "Samba": "samba, brazilian samba, percussion",
-    "Samba Enredo": "samba enredo, carnival samba, epic",
-    "Boteco": "pagode boteco, casual samba",
-    "Axe": "axe music, bahian carnival, festive",
-    "MPB": "mpb, musica popular brasileira, acoustic",
-    "Gospel Adoracao": "gospel worship, christian, spiritual, piano",
-    "Gospel Louvor": "gospel praise, christian, uplifting, choir",
-    "Gospel Infantil": "gospel kids, christian children, joyful",
-    "Kidis": "christian kids music, animated, fun",
-    "Funk Carioca": "funk carioca, baile funk, 150bpm, heavy bass",
-    "Funk Ostentacao": "funk ostentacao, brazilian funk, heavy bass, 150bpm",
-    "Brega Funk": "brega funk, pernambuco funk, melodic",
-    "Piseiro": "piseiro, forro piseiro, electronic beat",
-    "Eletronico": "electronic, EDM, synthesizer, dance",
-    "Pop Nacional": "brazilian pop, pop nacional, catchy",
-    "Rock Nacional": "rock nacional, brazilian rock, electric guitar",
-    "Reggae": "reggae, relaxed, bass guitar",
-    "Reggaeton": "reggaeton, latin urban, dembow",
-    "Balada": "ballad, slow, emotional, piano",
-    "RnB Nacional": "rnb, soul, smooth, groove",
-    "Soul Brasileiro": "soul, brazilian soul, groove",
-    "Pisadinha": "pisadinha, forro eletrônico, beat"
+    "Forro": "forro, brazilian accordion music, northeastern brazil, zabumba",
+    "Forro Universitario": "forro universitario, modern forro, upbeat brazilian dance",
+    "Forro Pe de Serra": "forro pe de serra, traditional accordion forro, rural brazil",
+    "Baiao": "baiao, northeastern brazilian folk, accordion rhythm, syncopated",
+    "Xote": "xote, slow romantic forro, gentle northeastern rhythm",
+    "Arrocha": "arrocha, slow romantic brazilian, sentimental ballad",
+    "Sertanejo Universitario": "sertanejo universitario, modern brazilian country, pop country brazil",
+    "Sertanejo Raiz": "sertanejo raiz, traditional brazilian country, acoustic viola",
+    "Sertanejo Romantico": "sertanejo romantico, romantic brazilian country, love ballad",
+    "Pagode": "pagode, brazilian samba pagode, cavaquinho, pandeiro, partido alto",
+    "Samba": "samba, classic brazilian samba, percussion, surdo, tamborim",
+    "Samba Enredo": "samba enredo, carnival samba, epic brass, bateria de escola",
+    "Boteco": "pagode boteco, casual samba, laid back groove",
+    "Axe": "axe, bahian carnival music, afro-brazilian, festive brass",
+    "MPB": "mpb, musica popular brasileira, bossa nova influenced, sophisticated",
+    "Gospel Adoracao": "christian worship, gospel adoracao, intimate, soft piano, praise",
+    "Gospel Louvor": "gospel louvor, christian praise, uplifting choir, powerful vocals",
+    "Gospel Infantil": "christian children gospel, kids worship, playful, joyful",
+    "Kidis": "christian kids music, gospel infantil, fun animated",
+    "Funk Carioca": "funk carioca, baile funk, 150bpm, rio de janeiro, heavy 808 bass",
+    "Funk Ostentacao": "funk ostentacao, ostentation funk, heavy 808 bass, rap brasil, 130bpm",
+    "Brega Funk": "brega funk, pernambuco funk, melodic verses, romantic chorus",
+    "Piseiro": "piseiro, forro piseiro, electronic drums, dance floor",
+    "Eletronico": "edm, electronic dance, synthesizer, techno, house music",
+    "Pop Nacional": "brazilian pop, pop nacional, catchy hooks, radio friendly",
+    "Rock Nacional": "rock nacional, brazilian rock, electric guitar, distortion",
+    "Reggae": "reggae, jamaican rhythm, offbeat guitar, bass groove, relaxed",
+    "Reggaeton": "reggaeton, latin urban, dembow beat, perreo",
+    "Balada": "power ballad, slow emotional, piano strings, heartfelt",
+    "RnB Nacional": "r&b, soul rnb, smooth groove, contemporary",
+    "Soul Brasileiro": "soul music, brazilian soul, funk groove, emotional",
+    "Pisadinha": "pisadinha, forro pisadinha, electronic beat, dance northeast brazil"
 }
 
 def build_prompt_with_metatags(lyrics: str, voice: str, rhythm: str) -> str:
@@ -126,9 +126,11 @@ def build_prompt_with_metatags(lyrics: str, voice: str, rhythm: str) -> str:
     voice_style = VOICE_STYLE.get(voice.lower(), "male vocals")
     rhythm_tag = RHYTHM_TAGS.get(rhythm, rhythm)
     
-    # Metatag com voz + ritmo juntos — Suno prioriza isso acima de tudo
-    prompt = f"[{voice_style}, {rhythm_tag}]\n{lyrics}"
-    logging.info(f"Metatag inserida: [{voice_style}, {rhythm_tag}]")
+    # Usar apenas o nome simples do ritmo na metatag
+    # Tags longas confundem o Suno - nome curto funciona melhor
+    rhythm_short = rhythm  # nome original ex: "Funk Ostentacao"
+    prompt = f"[{voice_style}]\n[{rhythm_short}]\n{lyrics}"
+    logging.info(f"Metatags inseridas: [{voice_style}] [{rhythm_short}]")
     return prompt
 
 def call_suno_generate(lyrics: str, tags: str, voice: str, rhythm: str) -> dict:
