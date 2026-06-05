@@ -105,11 +105,11 @@ RHYTHM_TAGS = {
     "Kidis": "christian kids music, gospel infantil, fun animated",
     "Funk Carioca": "funk carioca, baile funk, 150bpm, rio de janeiro, heavy 808 bass",
     "Funk Ostentacao": "funk ostentacao, ostentation funk, heavy 808 bass, rap brasil, 130bpm",
-    "Brega Funk": "brega funk, pernambuco funk, melodic verses, romantic chorus",
+    "Brega Funk": "brega funk, funk pernambucano, melodic funk, danca, 130bpm, bass heavy",
     "Piseiro": "piseiro, forro piseiro, electronic drums, dance floor",
     "Eletronico": "edm, electronic dance, synthesizer, techno, house music",
     "Pop Nacional": "brazilian pop, pop nacional, catchy hooks, radio friendly",
-    "Rock Nacional": "rock nacional, brazilian rock, electric guitar, distortion",
+    "Rock Nacional": "rock nacional, hard rock, electric guitar, distortion, drums, loud, energetic, power chords",
     "Reggae": "reggae, jamaican rhythm, offbeat guitar, bass groove, relaxed",
     "Reggaeton": "reggaeton, latin urban, dembow beat, perreo",
     "Balada": "power ballad, slow emotional, piano strings, heartfelt",
@@ -119,19 +119,40 @@ RHYTHM_TAGS = {
 }
 
 def build_prompt_with_metatags(lyrics: str, voice: str, rhythm: str) -> str:
-    """
-    Suno respeita metatags dentro da letra no formato [estilo].
-    Colocar voz E ritmo na metatag garante que ambos sejam respeitados.
-    """
     voice_style = VOICE_STYLE.get(voice.lower(), "male vocals")
-    rhythm_tag = RHYTHM_TAGS.get(rhythm, rhythm)
-    
-    # Usar apenas o nome simples do ritmo na metatag
-    # Tags longas confundem o Suno - nome curto funciona melhor
-    rhythm_short = rhythm  # nome original ex: "Funk Ostentacao"
-    prompt = f"[{voice_style}]\n[{rhythm_short}]\n{lyrics}"
-    logging.info(f"Metatags inseridas: [{voice_style}] [{rhythm_short}]")
+    rhythm_short = rhythm
+
+    # Limpar números da letra para evitar leitura errada
+    lyrics_clean = lyrics
+    numeros = [
+        ("1000", "mil"), ("100", "cem"), ("20", "vinte"),
+        ("19", "dezenove"), ("18", "dezoito"), ("17", "dezessete"),
+        ("16", "dezesseis"), ("15", "quinze"), ("14", "quatorze"),
+        ("13", "treze"), ("12", "doze"), ("11", "onze"), ("10", "dez"),
+        ("9", "nove"), ("8", "oito"), ("7", "sete"), ("6", "seis"),
+        ("5", "cinco"), ("4", "quatro"), ("3", "tres"), ("2", "dois"),
+        ("1", "um"), ("0", "zero")
+    ]
+    for num, texto in numeros:
+        # Substituir número isolado (sem dígito antes ou depois)
+        result = ""
+        i = 0
+        while i < len(lyrics_clean):
+            if lyrics_clean[i:i+len(num)] == num:
+                before = lyrics_clean[i-1] if i > 0 else " "
+                after = lyrics_clean[i+len(num)] if i+len(num) < len(lyrics_clean) else " "
+                if not before.isdigit() and not after.isdigit():
+                    result += texto
+                    i += len(num)
+                    continue
+            result += lyrics_clean[i]
+            i += 1
+        lyrics_clean = result
+
+    prompt = f"[{voice_style}]\n[{rhythm_short}]\n{lyrics_clean}"
+    logging.info(f"Metatags: [{voice_style}] [{rhythm_short}]")
     return prompt
+
 
 def call_suno_generate(lyrics: str, tags: str, voice: str, rhythm: str) -> dict:
     headers = {
