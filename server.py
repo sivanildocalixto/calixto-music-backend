@@ -120,7 +120,8 @@ RHYTHM_TAGS = {
 
 def build_prompt_with_metatags(lyrics: str, voice: str, rhythm: str) -> str:
     voice_style = VOICE_STYLE.get(voice.lower(), "male vocals")
-    rhythm_short = rhythm
+    # Usar tags em inglês na metatag - Suno não entende português
+    rhythm_short = RHYTHM_TAGS.get(rhythm, rhythm)
 
     # Limpar números da letra para evitar leitura errada
     lyrics_clean = lyrics
