@@ -10,6 +10,7 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
 import requests
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -61,14 +62,12 @@ class MusicStatusResponse(BaseModel):
     status: str
     variations: Optional[List[MusicVariation]] = None
 
-# Tags de voz para o campo tags do Suno
 VOICE_TAGS = {
-    "masculino": "male vocals, male singer, man voice",
-    "feminino": "female vocals, female singer, woman voice"
+    "masculino": "male vocals, male singer",
+    "feminino": "female vocals, female singer"
 }
 
-# Instrução de voz para colocar na letra (metatag Suno)
-VOICE_STYLE = {
+VOICE_METATAG = {
     "masculino": "male vocals",
     "feminino": "female vocals"
 }
@@ -82,51 +81,55 @@ MOOD_TAGS = {
     "saudade": "nostalgic, longing, saudade"
 }
 
-# Mapa de ritmos com descrições em INGLES para o Suno entender corretamente
+# Tags em INGLES para cada ritmo - o que o Suno entende
 RHYTHM_TAGS = {
-    "Forro": "forro, brazilian accordion music, northeastern brazil, zabumba",
-    "Forro Universitario": "forro universitario, modern forro, upbeat brazilian dance",
-    "Forro Pe de Serra": "forro pe de serra, traditional accordion forro, rural brazil",
-    "Baiao": "baiao, northeastern brazilian folk, accordion rhythm, syncopated",
-    "Xote": "xote, slow romantic forro, gentle northeastern rhythm",
-    "Arrocha": "arrocha, slow romantic brazilian, sentimental ballad",
-    "Sertanejo Universitario": "sertanejo universitario, modern brazilian country, pop country brazil",
-    "Sertanejo Raiz": "sertanejo raiz, traditional brazilian country, acoustic viola",
-    "Sertanejo Romantico": "sertanejo romantico, romantic brazilian country, love ballad",
+    "Forro": "forro, brazilian accordion dance music, northeastern brazil",
+    "Forro Universitario": "forro universitario, modern upbeat forro, electric guitar forro",
+    "Forro Pe de Serra": "forro pe de serra, traditional accordion forro, rural northeastern brazil",
+    "Baiao": "baiao, northeastern brazil folk, syncopated accordion rhythm",
+    "Xote": "xote, slow romantic forro, gentle northeastern dance",
+    "Arrocha": "arrocha, slow romantic brazilian ballad, sentimental",
+    "Sertanejo Universitario": "sertanejo universitario, modern brazilian country pop",
+    "Sertanejo Raiz": "sertanejo raiz, traditional brazilian country, acoustic viola caipira",
+    "Sertanejo Romantico": "sertanejo romantico, romantic brazilian country ballad",
     "Pagode": "pagode, brazilian samba pagode, cavaquinho, pandeiro, partido alto",
-    "Samba": "samba, classic brazilian samba, percussion, surdo, tamborim",
-    "Samba Enredo": "samba enredo, carnival samba, epic brass, bateria de escola",
-    "Boteco": "pagode boteco, casual samba, laid back groove",
-    "Axe": "axe, bahian carnival music, afro-brazilian, festive brass",
-    "MPB": "mpb, musica popular brasileira, bossa nova influenced, sophisticated",
-    "Gospel Adoracao": "christian worship, gospel adoracao, intimate, soft piano, praise",
-    "Gospel Louvor": "gospel louvor, christian praise, uplifting choir, powerful vocals",
-    "Gospel Infantil": "christian children gospel, kids worship, playful, joyful",
-    "Kidis": "christian kids music, gospel infantil, fun animated",
-    "Funk Carioca": "funk carioca, baile funk, 150bpm, rio de janeiro, heavy 808 bass",
-    "Funk Ostentacao": "funk ostentacao, ostentation funk, heavy 808 bass, rap brasil, 130bpm",
-    "Brega Funk": "brega funk, funk pernambucano, melodic funk, danca, 130bpm, bass heavy",
-    "Piseiro": "piseiro, forro piseiro, electronic drums, dance floor",
-    "Eletronico": "edm, electronic dance, synthesizer, techno, house music",
-    "Pop Nacional": "brazilian pop, pop nacional, catchy hooks, radio friendly",
-    "Rock Nacional": "rock nacional, hard rock, electric guitar, distortion, drums, loud, energetic, power chords",
-    "Reggae": "reggae, jamaican rhythm, offbeat guitar, bass groove, relaxed",
+    "Samba": "samba, classic brazilian samba, surdo, tamborim, percussion",
+    "Samba Enredo": "samba enredo, carnival escola de samba, epic brass percussion",
+    "Boteco": "pagode boteco, casual laid back samba pagode",
+    "Axe": "axe, bahian carnival afro-brazilian music, festive brass",
+    "MPB": "mpb, musica popular brasileira, bossa nova influenced, sophisticated acoustic",
+    "Gospel Adoracao": "christian worship, soft gospel, intimate piano worship, praise and worship",
+    "Gospel Louvor": "gospel praise, powerful choir, uplifting christian, energetic gospel",
+    "Gospel Infantil": "christian children music, kids gospel, playful joyful worship",
+    "Kidis": "kids christian music, animated gospel children, fun praise",
+    "Funk Carioca": "funk carioca, baile funk rio de janeiro, 150bpm heavy 808 bass",
+    "Funk Ostentacao": "funk ostentacao, ostentation funk brazil, heavy bass 808, rap funk 130bpm",
+    "Brega Funk": "brega funk, pernambuco melodic funk, romantic chorus funk, northeastern brazil funk",
+    "Piseiro": "piseiro, forro piseiro electronic, dance floor northeastern",
+    "Eletronico": "edm electronic dance music, synthesizer, house techno",
+    "Pop Nacional": "brazilian pop, pop nacional, catchy radio friendly",
+    "Rock Nacional": "rock nacional, hard rock brazil, electric guitar distortion, loud drums",
+    "Reggae": "reggae, jamaican rhythm, offbeat guitar skank, bass groove",
     "Reggaeton": "reggaeton, latin urban, dembow beat, perreo",
-    "Balada": "power ballad, slow emotional, piano strings, heartfelt",
-    "RnB Nacional": "r&b, soul rnb, smooth groove, contemporary",
-    "Soul Brasileiro": "soul music, brazilian soul, funk groove, emotional",
-    "Pisadinha": "pisadinha, forro pisadinha, electronic beat, dance northeast brazil"
+    "Balada": "power ballad, slow emotional piano, heartfelt strings",
+    "RnB Nacional": "r&b soul, smooth groove contemporary, brazilian rnb",
+    "Soul Brasileiro": "soul music brazil, funk groove, emotional soul",
+    "Pisadinha": "pisadinha, forro pisadinha electronic beat, dance northeastern brazil"
 }
 
-def build_prompt_with_metatags(lyrics: str, voice: str, rhythm: str) -> str:
-    voice_style = VOICE_STYLE.get(voice.lower(), "male vocals")
-    # Usar tags em inglês na metatag - Suno não entende português
-    rhythm_short = RHYTHM_TAGS.get(rhythm, rhythm)
-
-    # Limpar números da letra para evitar leitura errada
-    lyrics_clean = lyrics
-    numeros = [
-        ("1000", "mil"), ("100", "cem"), ("20", "vinte"),
+def converter_numeros(texto):
+    """Converte números em texto para evitar que o Suno leia algarismos."""
+    # Lista ordenada do maior para o menor para evitar substituições parciais
+    substituicoes = [
+        ("1000", "mil"), ("900", "novecentos"), ("800", "oitocentos"),
+        ("700", "setecentos"), ("600", "seiscentos"), ("500", "quinhentos"),
+        ("400", "quatrocentos"), ("300", "trezentos"), ("200", "duzentos"),
+        ("100", "cem"), ("90", "noventa"), ("80", "oitenta"),
+        ("70", "setenta"), ("60", "sessenta"), ("50", "cinquenta"),
+        ("40", "quarenta"), ("30", "trinta"), ("29", "vinte e nove"),
+        ("28", "vinte e oito"), ("27", "vinte e sete"), ("26", "vinte e seis"),
+        ("25", "vinte e cinco"), ("24", "vinte e quatro"), ("23", "vinte e tres"),
+        ("22", "vinte e dois"), ("21", "vinte e um"), ("20", "vinte"),
         ("19", "dezenove"), ("18", "dezoito"), ("17", "dezessete"),
         ("16", "dezesseis"), ("15", "quinze"), ("14", "quatorze"),
         ("13", "treze"), ("12", "doze"), ("11", "onze"), ("10", "dez"),
@@ -134,36 +137,50 @@ def build_prompt_with_metatags(lyrics: str, voice: str, rhythm: str) -> str:
         ("5", "cinco"), ("4", "quatro"), ("3", "tres"), ("2", "dois"),
         ("1", "um"), ("0", "zero")
     ]
-    for num, texto in numeros:
-        # Substituir número isolado (sem dígito antes ou depois)
-        result = ""
-        i = 0
-        while i < len(lyrics_clean):
-            if lyrics_clean[i:i+len(num)] == num:
-                before = lyrics_clean[i-1] if i > 0 else " "
-                after = lyrics_clean[i+len(num)] if i+len(num) < len(lyrics_clean) else " "
-                if not before.isdigit() and not after.isdigit():
-                    result += texto
-                    i += len(num)
-                    continue
-            result += lyrics_clean[i]
-            i += 1
-        lyrics_clean = result
+    for num, texto_num in substituicoes:
+        # Substituir número isolado (sem dígito adjacente)
+        padrao = r'(?<![0-9])' + re.escape(num) + r'(?![0-9])'
+        texto = re.sub(padrao, texto_num, texto)
+    return texto
 
-    prompt = f"[{voice_style}]\n[{rhythm_short}]\n{lyrics_clean}"
-    logging.info(f"Metatags: [{voice_style}] [{rhythm_short}]")
+def limpar_letra(lyrics):
+    """Remove marcações estruturais da letra que o Suno cantaria literalmente."""
+    linhas = lyrics.split('\n')
+    resultado = []
+    for linha in linhas:
+        linha_sem_espacos = linha.strip()
+        # Remover linhas que são APENAS marcações estruturais
+        if re.match(r'^\[?(verso|verse|copla)\s*\d*\]?\s*:?\s*$', linha_sem_espacos, re.IGNORECASE):
+            continue
+        if re.match(r'^\[?(refrao|refrão|chorus|coro)\s*\d*\]?\s*:?\s*$', linha_sem_espacos, re.IGNORECASE):
+            continue
+        if re.match(r'^\[?(ponte|bridge|intro|outro|pre.refrao|interludio|solo|hook)\s*\d*\]?\s*:?\s*$', linha_sem_espacos, re.IGNORECASE):
+            continue
+        if re.match(r'^(titulo|title|nome)\s*[:\-]', linha_sem_espacos, re.IGNORECASE):
+            continue
+        resultado.append(linha)
+    return '\n'.join(resultado).strip()
+
+def build_prompt(lyrics, voice, rhythm):
+    """Monta o prompt com metatags que o Suno respeita."""
+    voice_meta = VOICE_METATAG.get(voice.lower(), "male vocals")
+    rhythm_tags = RHYTHM_TAGS.get(rhythm, rhythm)
+
+    # Limpar letra e converter números
+    lyrics_clean = limpar_letra(lyrics)
+    lyrics_clean = converter_numeros(lyrics_clean)
+
+    # Metatag com voz e ritmo em inglês - Suno prioriza isso
+    prompt = f"[{voice_meta}]\n[{rhythm_tags}]\n{lyrics_clean}"
+    logging.info(f"Prompt metatags: [{voice_meta}] [{rhythm_tags[:50]}...]")
     return prompt
 
-
-def call_suno_generate(lyrics: str, tags: str, voice: str, rhythm: str) -> dict:
+def call_suno_generate(lyrics, tags, voice, rhythm):
     headers = {
         "Authorization": f"Bearer {SUNO_API_KEY}",
         "Content-Type": "application/json"
     }
-    
-    # Construir prompt com metatags para forçar voz correta
-    prompt = build_prompt_with_metatags(lyrics, voice, rhythm)
-    
+    prompt = build_prompt(lyrics, voice, rhythm)
     payload = {
         "prompt": prompt,
         "tags": tags,
@@ -172,11 +189,8 @@ def call_suno_generate(lyrics: str, tags: str, voice: str, rhythm: str) -> dict:
         "model": "V4_5ALL",
         "callBackUrl": "https://webhook.site/placeholder"
     }
-    
-    logging.info(f"Calling Suno with tags: {tags}")
-    logging.info(f"Calling Suno with voice metatag: [{VOICE_STYLE.get(voice.lower(), 'male vocals')}]")
-    logging.info(f"Prompt preview: {prompt[:100]}")
-    
+    logging.info(f"Calling Suno - voice: {voice}, rhythm: {rhythm}")
+    logging.info(f"Tags: {tags}")
     response = requests.post(
         f"{SUNO_BASE_URL}/generate",
         json=payload,
@@ -190,7 +204,7 @@ def call_suno_generate(lyrics: str, tags: str, voice: str, rhythm: str) -> dict:
         raise HTTPException(status_code=500, detail=f"Suno API error: {data.get('msg', 'Unknown error')}")
     return data
 
-def check_suno_status(task_id: str) -> dict:
+def check_suno_status(task_id):
     headers = {"Authorization": f"Bearer {SUNO_API_KEY}"}
     response = requests.get(
         f"{SUNO_BASE_URL}/generate/record-info",
@@ -206,22 +220,20 @@ def check_suno_status(task_id: str) -> dict:
 
 @api_router.get("/")
 async def root():
-    return {"message": "Calixto Music API v2"}
+    return {"message": "Calixto Music API v3"}
 
 @api_router.post("/music/generate", response_model=GenerateMusicResponse)
 async def generate_music(request: GenerateMusicRequest):
     try:
         voice_tag = VOICE_TAGS.get(request.voice.lower(), "male vocals, male singer")
         mood_tag = MOOD_TAGS.get(request.mood.lower(), request.mood)
-        
-        # Pegar tags precisas do ritmo
         rhythm_tag = RHYTHM_TAGS.get(request.rhythm, request.rhythm)
-        
-        # IMPORTANTE: voz PRIMEIRO nas tags
+
+        # Voz PRIMEIRO nas tags externas também
         tags = f"{voice_tag}, {rhythm_tag}, {mood_tag}"
-        
+
         logging.info(f"Generating music - voice: {request.voice}, rhythm: {request.rhythm}")
-        logging.info(f"Final tags: {tags}")
+        logging.info(f"Final tags: {tags[:100]}")
 
         suno_response = call_suno_generate(request.lyrics, tags, request.voice, request.rhythm)
         task_id = suno_response.get("data", {}).get("taskId")
@@ -265,7 +277,6 @@ async def check_music_status(project_id: str):
             return MusicStatusResponse(status="completed", variations=variations)
 
         suno_response = check_suno_status(project.get("task_id"))
-        logging.info(f"Suno status for {project_id}: {str(suno_response)[:200]}")
 
         if suno_response.get("code") == 404:
             return MusicStatusResponse(status="processing")
@@ -276,7 +287,6 @@ async def check_music_status(project_id: str):
             logging.info(f"Suno task status: {suno_status}")
 
             success_statuses = ["FIRST_SUCCESS", "SUCCESS", "COMPLETE", "COMPLETED"]
-            
             if suno_status.upper() in success_statuses:
                 suno_data = (
                     response_data.get("response", {}).get("sunoData", []) or
@@ -284,9 +294,7 @@ async def check_music_status(project_id: str):
                     response_data.get("data", []) or
                     response_data.get("songs", []) or []
                 )
-                
                 logging.info(f"Suno data found: {len(suno_data)} songs")
-                
                 if suno_data:
                     variations = []
                     for song in suno_data[:2]:
