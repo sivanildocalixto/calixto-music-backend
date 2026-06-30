@@ -170,9 +170,9 @@ def build_prompt(lyrics, voice, rhythm):
     lyrics_clean = limpar_letra(lyrics)
     lyrics_clean = converter_numeros(lyrics_clean)
 
-    # Metatag com voz e ritmo em inglês - Suno prioriza isso
-    prompt = f"[{voice_meta}]\n[{rhythm_tags}]\n{lyrics_clean}"
-    logging.info(f"Prompt metatags: [{voice_meta}] [{rhythm_tags[:50]}...]")
+    # Reforçar ritmo no início E no fim - Suno não ignora mesmo com letras longas
+    prompt = f"[{voice_meta}, {rhythm_tags}]\n{lyrics_clean}\n[{rhythm_tags}]"
+    logging.info(f"Prompt metatags: [{voice_meta}] [{rhythm_tags[:60]}...]")
     return prompt
 
 def call_suno_generate(lyrics, tags, voice, rhythm):
